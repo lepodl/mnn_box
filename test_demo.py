@@ -9,33 +9,34 @@ class Test_MnnBox(unittest.TestCase):
         x = Input()
         gamma = Variable('gamma')
         beta = Variable('beta')
-        target = Input('target')
+        target = Variable('target')
         u_input = np.random.uniform(size=(4, 100))
         s_input = np.random.uniform(size=(4, 100))
         x_ = np.stack([u_input, s_input], axis=-1)
-        gamma_ = np.array([0.5, 0.5])
+        gamma_ = np.ones((100, 2)) * 0.5
         beta_ = np.ones((100, 2)) * 2.
         target_ = np.stack([u_input, s_input], axis=-1)
         feed_dict = {x: x_, gamma: gamma_, beta: beta_, target: target_}
-        out = BatchNormalization(1, x, gamma, beta)
+        out = BatchNormalization(x, gamma, beta, {'mode': "train",})
         cost = MSE(out, target)
         graph = topological_sort(feed_dict)
         forward_and_backward(graph)
         loss = cost.value
-        # print('\n---------------->the gradient of x\n', out.gradients[x][1, 1, 0])
-        # print('\n---------------->the gradient of gamma\n', gamma.gradients[gamma][1])
-        print('\n---------------->the gradient of beta\n', beta.gradients[beta][1, 0])
+        print('\n---------------->the gradient of x\n', out.gradients[x][1, 1, 0])
+        # print('\n---------------->the gradient of gamma\n', gamma.gradients[gamma][1, 0])
+        # print('\n---------------->the gradient of beta\n', beta.gradients[beta][1, 0])
 
-        # x_[1, 1, 0] = x_[1, 1, 0] + 0.0001
-        # x.value = x_
-        # gamma_[1] = gamma_[1] + 0.0001
+        x_[1, 1, 0] = x_[1, 1, 0] + 0.00001
+        x.value = x_
+        # gamma_[1, 0] = gamma_[1, 0] + 0.01
         # gamma.value = gamma_
-        beta_[1, 0] = beta_[1, 0] + 0.0001
+        # beta_[1, 0] = beta_[1, 0] + 0.01
+        # beta.value = beta_
         loss_ = forward_pass(cost, graph)
-        grad = (loss_ - loss) / 0.0001
-        # print('\n---------------->validate the gradient of x\n', grad)
+        grad = (loss_ - loss) / 0.00001
+        print('\n---------------->validate the gradient of x\n', grad)
         # print('\n---------------->validate the gradient of gamma\n', grad)
-        print('\n---------------->validate the gradient of beta\n', grad)
+        # print('\n---------------->validate the gradient of beta\n', grad)
 
     def _test_gradient_of_act(self):
         X = Input()
@@ -67,7 +68,7 @@ class Test_MnnBox(unittest.TestCase):
         X = Input('input')
         layer = [X]
         weight = []
-        hidd = 4
+        hidd = 3
         W = [Variable('weight_{}'.format(i)) for i in range(hidd)]
         Gamma = [Variable('gamma_{}'.format(i)) for i in range(hidd)]
         Beta = [Variable('beta_{}'.format(i)) for i in range(hidd)]
@@ -76,7 +77,7 @@ class Test_MnnBox(unittest.TestCase):
         for i in range(hidd):
             combine = Combine(layer[i], W[i], 'combine_{}'.format(i))
             combination.append([combine])
-            bn = BatchNormalization(1, combine, Gamma[i], Beta[i], 'bn_{}'.format(i))
+            bn = BatchNormalization(combine, Gamma[i], Beta[i], {'mode': 'train'}, 'bn_{}'.format(i))
             batchnorm.append(bn)
             activate = Activate(bn, 'activate_{}'.format(i))
             layer.append(activate)
@@ -87,8 +88,8 @@ class Test_MnnBox(unittest.TestCase):
         s_input = np.sqrt(u_input)  # cv = 1
         X_ = np.stack([u_input, s_input], axis=-1)
         W_ = np.random.uniform(0., 1., size=(neurons, neurons))
-        gamma_ = np.array([1., 1.])
-        beta_ = np.stack([np.ones(neurons) * 2., np.ones(neurons) * 10.], axis=-1)
+        gamma_ = np.ones((neurons, 2))
+        beta_ = np.stack([np.ones(neurons) * 1., np.ones(neurons) * 10.], axis=-1)
         target_ = X_
         feed_dict = {X: X_, target: target_}
         for i in range(hidd):
@@ -99,7 +100,7 @@ class Test_MnnBox(unittest.TestCase):
         forward_and_backward(graph)
         # train_ables = W + Gamma + Beta
 
-        path = os.path.join('./fig', 'nn_property')
+        path = os.path.join('./fig', 'nn_property_temp')
         os.makedirs(path, exist_ok=True)
         for l in range(hidd):
             bn_out = batchnorm[l].value
@@ -123,8 +124,8 @@ class Test_MnnBox(unittest.TestCase):
                     axes[i][j].hist(grad, bins=20, facecolor="blue", edgecolor="black", alpha=0.7)
             plt.savefig(os.path.join(path, 'gradient_of_weight{}.png'.format(l)))
             plt.close()
-        grad_gamma_u = [Gamma[j].gradients[Gamma[j]][0] for j in range(4)]
-        grad_gamma_s = [Gamma[j].gradients[Gamma[j]][1] for j in range(4)]
+        grad_gamma_u = [Gamma[j].gradients[Gamma[j]][0, 0] for j in range(3)]
+        grad_gamma_s = [Gamma[j].gradients[Gamma[j]][0, 1] for j in range(3)]
         print('\n --------gradient of gamma_u:\n', grad_gamma_u)
         print('\n --------gradient of gamma_s:\n', grad_gamma_s)
         print('\n --------gradient of 0th layer beta_u:\n', Beta[0].gradients[Beta[0]][:, 0])

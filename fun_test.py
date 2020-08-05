@@ -18,7 +18,15 @@ def data_iter(batch_size, features, labels):
 #     print(u_input.shape)
 #     break
 
-neurons = 2
-W_ = np.random.exponential(0.3, 1000)
-plt.hist(W_, bins=40)
-plt.show()
+# neurons = 2
+# W_ = np.random.exponential(0.3, 1000)
+# plt.hist(W_, bins=40)
+# plt.show()
+
+y = np.array([10., 9.])
+x = {'a': y}
+print(x['a'])
+y[0] = y[0] + 1.
+print(x['a'])
+y = 2.
+print(x['a'])

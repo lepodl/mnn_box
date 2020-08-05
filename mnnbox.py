@@ -5,6 +5,7 @@ from utils import Fun, dawson, dbl_dawson
 DEBUG = False
 T_DEBUG = False
 
+
 # TODO(luckyzlb15@163.com): extend the model to deal with the data in batch
 # batch information: (bathch_size, neurons, 2)
 
@@ -22,7 +23,7 @@ class Node(object):
         `inbound_nodes`: A list of nodes with edges into this node.
     """
 
-    def __init__(self, inbound_nodes=[], ratio=0.4, v_r=0, v_th=20, L=0.05, t_ref=5):
+    def __init__(self, inbound_nodes=[], ratio=0.8, v_r=0, v_th=20, L=0.05, t_ref=5):
         """
         Node's constructor (runs when the object is instantiated). Sets
         properties that all nodes need.
@@ -283,16 +284,18 @@ class Combine(Node):
 
         self.X = self.inbound_nodes[0]  # X.value.shape=(batch_size, nodes, 2)
         self.W = self.inbound_nodes[1]
-        self.rou = self.inbound_nodes[0].rou # shape = (batch_size, nodes, nodes)
+        self.rou = self.inbound_nodes[0].rou  # shape = (batch_size, nodes, nodes)
 
         # u and s, shape = (batch_size, nodes)
         u = np.einsum('ij,kj->ki', self.W.value, self.X.value[:, :, 0]) * (1 - self.ratio)
-        s = np.sqrt(np.einsum('im,km,in,kn,kmn->ki', self.W.value, self.X.value[:, :, 1], self.W.value, self.X.value[:, :, 1],
-                              self.rou) * (1 + self.ratio ** 2))
+        s = np.sqrt(
+            np.einsum('im,km,in,kn,kmn->ki', self.W.value, self.X.value[:, :, 1], self.W.value, self.X.value[:, :, 1],
+                      self.rou) * (1 + self.ratio ** 2))
         self.value = np.stack([u, s], axis=-1)
-        denominator = np.einsum('ki,kj->kij', s, s)
-        self.rou = np.einsum('im,km,jn,kn,kmn->kij', self.W.value, self.X.value[:, :, 1], self.W.value, self.X.value[:, :, 1], self.rou) * (1 + self.ratio ** 2) / denominator
-        #
+
+        # denominator = np.einsum('ki,kj->kij', s, s)
+        # self.rou = np.einsum('im,km,jn,kn,kmn->kij', self.W.value, self.X.value[:, :, 1], self.W.value, self.X.value[:, :, 1], self.rou) * (1 + self.ratio ** 2) / denominator
+
         # if True:  print("\n================>Forward pass @ ", self.name)
         # if True: print("u_hat:{}".format(u[1, :5]))
         # if True: print("s_hat:{}".format(s[1, :5]))
@@ -329,15 +332,17 @@ class Combine(Node):
             grad_u = np.einsum('ij,ki->kj', self.W.value, grad_cost[:, :, 0]) * (1 - self.ratio)
             # grad_u = np.dot(self.W.value.T, grad_cost[:, 0]) * (1 - self.ratio)
             inv = 1 / (2 * self.value[:, :, 1])
-            temp = np.einsum('bi,ij,ik,bjk,bk->bij', inv, self.W.value, self.W.value, self.X.rou, self.X.value[:, :, 1]) * 2 * (
-                    1 + self.ratio ** 2)
+            temp = np.einsum('bi,ij,ik,bjk,bk->bij', inv, self.W.value, self.W.value, self.X.rou,
+                             self.X.value[:, :, 1]) * 2 * (
+                           1 + self.ratio ** 2)
             grad_s = np.einsum('bij,bi->bj', temp, grad_cost[:, :, 1])
             self.gradients[self.X] += np.stack([grad_u, grad_s], axis=-1)
 
             # Set the partial of the loss with respect to this node's weights.
             ds_dw = np.einsum('bk,ki,bi,bj,bij->bkj', inv, self.W.value, self.X.value[:, :, 1], self.X.value[:, :, 1],
                               self.X.rou) * 2 * (1 + self.ratio ** 2)
-            grad_u_part_w = np.einsum('bi,bj->bij', grad_cost[:, :, 0], self.X.value[:, :, 0]) * (1 - self.ratio)  # dE/du * du/dw
+            grad_u_part_w = np.einsum('bi,bj->bij', grad_cost[:, :, 0], self.X.value[:, :, 0]) * (
+                        1 - self.ratio)  # dE/du * du/dw
             grad_s_part_w = np.einsum('bi,bij->bij', grad_cost[:, :, 1], ds_dw)  # dE/ds * ds/dw
             batch_grad_w = grad_u_part_w + grad_s_part_w
             self.gradients[self.W] += np.sum(batch_grad_w, axis=0)
@@ -489,9 +494,9 @@ class Activate(Node):
             du_du = (2 * u ** 2) * (dawson(i_2) - dawson(i_1)) / (self.s_hat * self.L)
             du_ds = (2 * u ** 2) * (i_2 * dawson(i_2) - i_1 * dawson(i_1)) / (self.s_hat * self.L)
             ds_du = (-4 / (s_3 * self.s_hat * self.L ** 2)) * (dbl_dawson(i_2) - dbl_dawson(i_1)) * u ** (
-                        3 / 2) + 3 * s_3 * np.sqrt(u) * du_du / 2
+                    3 / 2) + 3 * s_3 * np.sqrt(u) * du_du / 2
             ds_ds = -4 * (i_2 * dbl_dawson(i_2) - i_1 * dbl_dawson(i_1)) * u ** (3 / 2) / (
-                        s_3 * self.L ** 2 * self.s_hat) + 3 * s_3 * np.sqrt(u) * du_ds / 2
+                    s_3 * self.L ** 2 * self.s_hat) + 3 * s_3 * np.sqrt(u) * du_ds / 2
 
             grad_u = grad_cost[:, :, 0] * du_du + grad_cost[:, :, 1] * ds_du
             grad_s = grad_cost[:, :, 0] * du_ds + grad_cost[:, :, 1] * ds_ds
@@ -499,8 +504,6 @@ class Activate(Node):
 
         if (DEBUG): print('Calculated Final Gradient:\n----------------')
         if (DEBUG): print('W.r.t ', self.X.name, ': \n-------------\n', self.gradients[self.inbound_nodes[0]])
-
-
 
 
 def sgd_update(trainables, learning_rate=1e-2):
@@ -535,6 +538,7 @@ class BatchNormalization(Node):
     running_mean = momentum * running_mean + (1 - momentum) * sample_mean
     running_var = momentum * running_var + (1 - momentum) * sample_var
     '''
+
     def __init__(self, X, gamma, beta, bn_param, name='bn_op'):
         '''
 
@@ -553,79 +557,93 @@ class BatchNormalization(Node):
         self.mode = bn_param['mode']
         self.eps = bn_param.get('eps', 1e-5)
         self.momentum = bn_param.get('momentum', 0.9)
-        bs, D = X.shape[0], X.shape[1]
-        self.running_mean = bn_param.get('running_mean', np.zeros((D, 2), dtype=X.dtype))
-        self.running_var = bn_param.get('running_var', np.zeros((D, 2), dtype=X.dtype))
+        self.count = 0
+        self.running_mean = bn_param.get('running_mean', np.zeros(2))
+        self.running_var = bn_param.get('running_var', np.zeros(2))
 
     def forward(self):
+
         self.rou = self.inbound_nodes[0].rou
         if self.mode == 'train':
             dim = self.inbound_nodes[0].value.shape[1]
             sample_mean = self.X.value.mean(axis=0)
             sample_var = self.X.value.var(axis=0)
 
-            running_mean = self.momentum * self.running_mean + (1 - self.momentum) * sample_mean
-            running_var = self.momentum * self.running_var + (1 - self.momentum) * sample_var
+            self.running_mean = self.momentum * self.running_mean + (1 - self.momentum) * sample_mean
+            self.running_var = self.momentum * self.running_var + (1 - self.momentum) * sample_var
 
-            std = np.sqrt(sample_var + self.eps)
-            x_centered = self.X.value - sample_mean
-            x_norm = x_centered / std
-            out = gamma * x_norm + beta
+            self.std = np.sqrt(sample_var + self.eps)
+            self.x_centered = self.X.value - sample_mean
+            self.x_norm = self.x_centered / self.std
+            out = self.gamma.value * self.x_norm + self.beta.value
+            self.value = out
 
-            # output = x_nb; shape=(bs, neurons, 2)
-            self.u , self.s = self.inbound_nodes[0].value[:, :, 0], self.inbound_nodes[0].value[:, :, 1]
-            # gamma.shape=(2), beta.shape=(dim, 2)
-            self.gamma, self.beta = self.inbound_nodes[1].value, self.inbound_nodes[2].value
-            self.u_mean, self.u_variance = np.mean(self.u, axis=0), np.var(self.u, axis=0)
-            self.s_mean, self.s_variance = np.mean(self.s, axis=0), np.var(self.s, axis=0)
-            if self.num >= 1000:
-                self.u_mean_all.append(self.u_mean)
-                self.s_mean_all.append(self.s_mean)
-                self.u_variance_all.append(self.u_variance)
-                self.s_variance_all.append(self.s_variance)
-            self.u_hat = (self.u - self.u_mean) /np.sqrt(self.u_variance + self.epsilon)
-            self.s_hat = (self.s - self.s_mean) /np.sqrt(self.s_variance + self.epsilon)
-            self.u_output = self.u_hat * self.gamma[0] + self.beta[:, 0]
-            self.s_output = self.s_hat * self.gamma[1] + self.beta[:, 1]
-            self.value = np.stack([self.u_output, self.s_output], axis=-1)
-            # if True:  print("\n================>Forward pass @ ", self.name)
-            # if True: print("u:{}".format(self.u_output[1, :5]))
-            # if True: print("s:{}".format(self.s_output[1, :5]))
-
+        elif self.mode == 'test':
+            x_norm = (self.X.value - self.running_mean) / np.sqrt(self.running_var + self.eps)
+            out = self.gamma.value * x_norm + self.beta
+            self.value = out
 
         else:
-            self.u, self.s = self.inbound_nodes[0].value[:, :, 0], self.inbound_nodes[0].value[:, :, 1]
-            # gamma.shape=(2), beta.shape=(dim, 2)
-            self.gamma, self.beta = self.inbound_nodes[1].value, self.inbound_nodes[2].value
-            length = len(self.u_mean_all)
-            u_mean = np.mean(np.array(self.u_mean_all), axis=0)
-            s_mean = np.mean(np.array(self.s_mean_all), axis=0)
-            u_variance = np.mean(np.array(self.u_variance_all) ** 2, axis=0) * length / (length -1)
-            s_variance = np.mean(np.array(self.s_variance_all) ** 2, axis=0) * length / (length -1)
-            u_output = self.u / np.sqrt(u_variance + self.epsilon) * self.gamma[0] + self.beta[:, 0] - (self.gamma[0] *  u_mean / np.sqrt(u_variance + self.epsilon))
-            s_output = self.u / np.sqrt(s_variance + self.epsilon) * self.gamma[1] + self.beta[:, 1] - (self.gamma[1] *  s_mean / np.sqrt(s_variance + self.epsilon))
-            self.value = np.stack([self.u_output, self.s_output], axis=-1)
-
-    @staticmethod
-    def grad_us(gamma, grad, x, mean, variance, epsilon ):
-        m = x.shape[0]
-        diff = x - mean
-        dl_dx_hat = grad * gamma
-        dl_sigma_square = np.einsum('bi,bi,i->i', dl_dx_hat, diff, (-1 /2 * (variance + epsilon) ** (- 3 / 2)))
-        dl_mean = np.einsum('bi,i->i', dl_dx_hat, (-1 / np.sqrt(variance + epsilon))) -2 * dl_sigma_square * np.average(diff, axis=0)
-        grad = np.einsum('bi,i->bi', dl_dx_hat, (1 / np.sqrt(variance + epsilon))) + np.einsum('i,bi->bi', dl_sigma_square, (2 / m * diff)) + dl_mean / m
-        return grad
+            raise ValueError('Invalid forward batchnorm mode {}'.format(self.mode))
 
     def backward(self):
         self.gradients = {n: np.zeros_like(n.value) for n in self.inbound_nodes}
         for n in self.outbound_nodes:
             grad_cost = n.gradients[self]  # shape = self.value.shape = (batch_size, this layer neurons, 2)
-            dl_gamma = np.array([np.einsum('bi,bi->', grad_cost[:, :, 0], self.u_hat), np.einsum('bi,bi->', grad_cost[:, :, 1], self.s_hat)])
-            dl_beta = np.stack([np.sum(grad_cost[:, :, 0], axis=0), np.sum(grad_cost[:, :, 1], axis=0)], axis=-1)
+            bs = grad_cost.shape[0]
+            dl_gamma = np.einsum('bij,bij->ij', grad_cost, self.x_norm)
+            dl_beta = np.sum(grad_cost, axis=0)
+            dl_norm = np.einsum('bij,ij->bij', grad_cost, self.gamma.value)
+            dl_centered = dl_norm / self.std
+            dl_std = (dl_norm * self.x_centered * -self.std ** (-2)).sum(axis=0)
+            dl_var = dl_std / 2 / self.std
+            dl_mean = -(dl_centered.sum(axis=0)) - dl_var * (self.x_centered.sum(axis=0)) * 2 / bs
+            dl_x = dl_centered + (dl_mean + dl_var * 2 * self.x_centered) / bs
 
-            grad_u = BatchNormalization.grad_us(self.gamma[0], grad_cost[:, :, 0], self.u, self.u_mean, self.u_variance, self.epsilon)
-            grad_s = BatchNormalization.grad_us(self.gamma[1], grad_cost[:, :, 1], self.s, self.s_mean, self.s_variance, self.epsilon)
-
-            self.gradients[self.inbound_nodes[0]] += np.stack([grad_u, grad_s], axis=-1)
+            self.gradients[self.inbound_nodes[0]] += dl_x
             self.gradients[self.inbound_nodes[1]] += dl_gamma
             self.gradients[self.inbound_nodes[2]] += dl_beta
+
+
+class cross_entropy_with_logits(Node):
+    def __init__(self, logits, labels, name='cross_entropy'):
+        Node.__init__(self, inbound_nodes=[logits, labels])
+        self.name = name
+
+    def forward(self):
+        labels = self.inbound_nodes[1].value
+        logits = self.inbound_nodes[0].value
+        self.m = labels.shape[0]
+        self.value = np.sum(-labels * np.log(logits) - (1 - labels) * np.log(1 - logits)) / self.m
+        self.diff = (logits - labels) / (logits * (1 - logits))
+
+    def backward(self):
+        self.gradients[self.inbound_nodes[0]] = self.diff
+
+
+class softmax_cross_entropy_with_logits(Node):
+    '''
+    it performs a softmax on logits internally for efficiency。
+    '''
+
+    def __init__(self, logits, labels, name='soft_cross_entropy'):
+        """softmax loss function"""
+        Node.__init__(self, inbound_nodes=[logits, labels])
+        self.name = name
+
+    @staticmethod
+    def softmax(logits):
+        logits = np.exp(logits)
+        for i in range(logits.shape[0]):
+            logits[i, :] = logits[i, :] / np.sum(logits[i, :])
+        return logits
+
+    def forward(self):
+        labels = self.inbound_nodes[1].value
+        logits = self.inbound_nodes[0].value
+        logits_ = softmax_cross_entropy_with_logits.softmax(logits)
+        self.value = np.sum(-labels * np.log(logits_) - (1 - labels) * np.log(1 - logits_))
+        self.diff = logits_ - self.inbound_nodes[1].value
+
+    def backward(self):
+        self.gradients[self.inbound_nodes[0]] = self.diff
