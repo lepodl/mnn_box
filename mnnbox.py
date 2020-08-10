@@ -606,7 +606,9 @@ class BatchNormalization(Node):
         elif self.mode == 'test':
             x_norm = (self.X.value - self.running_mean) / np.sqrt(self.running_var + self.eps)
             out = self.gamma.value * x_norm + self.beta.value
-            self.value = out
+            out1 = np.clip(out[:, :, 0], -3., 5.)
+            out2 = np.clip(out[:, :, 1], 2., 20.)
+            self.value = np.stack([out1, out2], axis=-1)
 
         else:
             raise ValueError('Invalid forward batchnorm mode {}'.format(self.mode))
