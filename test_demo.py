@@ -5,7 +5,7 @@ import os
 
 
 class Test_MnnBox(unittest.TestCase):
-    def _test_gradient_bn(self):
+    def test_gradient_bn(self):
         x = Input()
         gamma = Variable('gamma')
         beta = Variable('beta')
@@ -22,21 +22,21 @@ class Test_MnnBox(unittest.TestCase):
         graph = topological_sort(feed_dict)
         forward_and_backward(graph)
         loss = cost.value
-        print('\n---------------->the gradient of x\n', out.gradients[x][1, 1, 0])
+        # print('\n---------------->the gradient of x\n', out.gradients[x][1, 1, 0])
         # print('\n---------------->the gradient of gamma\n', gamma.gradients[gamma][1, 0])
-        # print('\n---------------->the gradient of beta\n', beta.gradients[beta][1, 0])
+        print('\n---------------->the gradient of beta\n', beta.gradients[beta][1, 0])
 
-        x_[1, 1, 0] = x_[1, 1, 0] + 0.00001
-        x.value = x_
-        # gamma_[1, 0] = gamma_[1, 0] + 0.01
+        # x_[1, 1, 0] = x_[1, 1, 0] + 0.0001
+        # x.value = x_
+        # gamma_[1, 0] = gamma_[1, 0] + 0.001
         # gamma.value = gamma_
-        # beta_[1, 0] = beta_[1, 0] + 0.01
-        # beta.value = beta_
+        beta_[1, 0] = beta_[1, 0] + 0.001
+        beta.value = beta_
         loss_ = forward_pass(cost, graph)
-        grad = (loss_ - loss) / 0.00001
-        print('\n---------------->validate the gradient of x\n', grad)
+        grad = (loss_ - loss) / 0.001
+        # print('\n---------------->validate the gradient of x\n', grad)
         # print('\n---------------->validate the gradient of gamma\n', grad)
-        # print('\n---------------->validate the gradient of beta\n', grad)
+        print('\n---------------->validate the gradient of beta\n', grad)
 
     def _test_gradient_of_act(self):
         X = Input()
@@ -62,7 +62,7 @@ class Test_MnnBox(unittest.TestCase):
         grad_check = (cost_2 - cost_1) / (1e-3)
         print('\n=====================\ngradient for check', grad_check)
 
-    def test_whole_nn(self):
+    def _test_whole_nn(self):
         neurons = 10
         bs = 9
         X = Input('input')

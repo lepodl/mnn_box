@@ -5,6 +5,7 @@ from scipy.special import erfcx
 from scipy import interpolate
 import time
 import pickle
+import matplotlib.pyplot as plt
 
 
 
@@ -79,8 +80,8 @@ class Fun:
 def interpolation():
     # activation for u, respect to u_bar and s_bar
     start = time.time()
-    y = np.linspace(-1., 5, 50)
-    z = np.linspace(0.1, 5, 50)
+    y = np.linspace(-2., 5, 140)
+    z = np.linspace(2, 20, 180)
     yy, zz = np.meshgrid(y, z)
     func = Fun()
     u = func.s_1(yy, zz)
@@ -90,12 +91,27 @@ def interpolation():
     print('interpolation costs time: ', time.time()-start)
     pickle_file_u = open('s_1.pkl', 'wb')
     pickle.dump(new_func_u, pickle_file_u)
+    pickle_file_u.close()
     pickle_file_cv = open('s_2.pkl', 'wb')
     pickle.dump(new_func_cv, pickle_file_cv)
+    pickle_file_cv.close()
     # return new_func_u
+
+def interpolation_for_dbldawson():
+    x = np.linspace(-3., 2.5, 1000)
+    y = dbl_dawson(x)
+    new_dbl_dawson = interpolate.interp1d(x, y, kind='cubic')
+    with open('./dbl_dawson.pkl', 'wb') as f:
+        pickle.dump(new_dbl_dawson, f)
+    # tt_x = np.linspace(1.5, 2., 20)
+    # yy = new_dbl_dawson(tt_x)
+    # y_real = dbl_dawson(tt_x)
+    # plt.figure()
+    # plt.plot(np.arange(len(tt_x)), yy - y_real)
+    # plt.show()
 
 
 if __name__ == '__main__':
-    interpolation()
+    interpolation_for_dbldawson()
 
 

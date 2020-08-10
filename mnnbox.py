@@ -1,9 +1,19 @@
 import numpy as np
 import matplotlib.pyplot as plot
-from utils import Fun, dawson, dbl_dawson
+from utils import dawson
+from functools import reduce
+import pickle
+from opt_einsum import contract
 
 DEBUG = False
 T_DEBUG = False
+
+with open('./s_1.pkl', 'rb') as f1:
+    s_1 = pickle.load(f1)
+with open('./s_2.pkl', 'rb') as f2:
+    s_2 = pickle.load(f2)
+with open('./dbl_dawson.pkl', 'rb') as f3:
+    ddwason = pickle.load(f3)
 
 
 # TODO(luckyzlb15@163.com): extend the model to deal with the data in batch
@@ -23,7 +33,7 @@ class Node(object):
         `inbound_nodes`: A list of nodes with edges into this node.
     """
 
-    def __init__(self, inbound_nodes=[], ratio=0.8, v_r=0, v_th=20, L=0.05, t_ref=5):
+    def __init__(self, inbound_nodes=[], value=None, ratio=0.8, v_r=0, v_th=20, L=0.05, t_ref=5):
         """
         Node's constructor (runs when the object is instantiated). Sets
         properties that all nodes need.
@@ -39,7 +49,7 @@ class Node(object):
         # The eventual value of this node. Set by running
         # the forward() method.
         # neglect the correction coefficient
-        self.value = None
+        self.value = value
 
         # A list of nodes with edges into this node.
         # Just like input arguments to any function/method
@@ -83,13 +93,13 @@ class Input(Node):
     A generic input into the network.
     """
 
-    def __init__(self, name='Input'):
+    def __init__(self, value=None, name='Input'):
         # The base class constructor has to run to set all
         # the properties here.
         #
         # The most important property on an Input is value.
         # self.value is set during `topological_sort` later.
-        Node.__init__(self)
+        Node.__init__(self, value=value)
         self.name = name
 
     # NOTE: Input node is the only node where the value
@@ -108,9 +118,9 @@ class Input(Node):
             if (DEBUG): print("w.r.t {} node of value: {} ".format(self.name, self.value))
         batch_size = self.value.shape[0]
         dim = self.value.shape[1]
-        # each entry has a rou
-        rou = np.eye(dim) * 0.9 + np.ones(dim) * 0.1
-        self.rou = np.expand_dims(rou, 0).repeat(batch_size, axis=0)
+        # each entry has a rou (for now, we fix the rou as identity matrix)
+        # rou = np.eye(dim) * 0.9 + np.ones(dim) * 0.1
+        # self.rou = np.expand_dims(rou, 0).repeat(batch_size, axis=0)
 
     def backward(self):
         # An Input node has no inputs (the output is the node's value),
@@ -138,9 +148,9 @@ class Input(Node):
 
 
 class Variable(Node):
-    def __init__(self, name='variable'):
+    def __init__(self, value=None, name='variable'):
         # The base class constructor has to run to set all.
-        Node.__init__(self)
+        Node.__init__(self, value=value)
         self.name = name
 
     def forward(self, value=None):
@@ -225,7 +235,8 @@ def topological_sort(feed_dict):
         # Assign values to the input node
         if isinstance(n, Input) or isinstance(n, Variable):
             if T_DEBUG: print('Feeding value: ', feed_dict[n], ' =====>  ', n.name)
-            n.value = feed_dict[n]
+            if feed_dict[n] is not None:
+                n.value = feed_dict[n]
 
         L.append(n)
         if T_DEBUG: print('Adding ', n.name, 'to the sorted List')
@@ -265,13 +276,13 @@ def forward_pass(output_node, sorted_nodes):
 
 
 # define the operations in the mnn framework
-class Combine(Node):
+class Compose(Node):
     """
     Represents a node that performs a linear/nonlinear transform.
     to specify the combine_operation on the u and s of a neuron/node.
     """
 
-    def __init__(self, X, W, name='combine_op'):
+    def __init__(self, X, W, name='compose_op'):
         # The base class (Node) constructor. Weights and bias
         # are treated like inbound nodes.
         Node.__init__(self, [X, W])
@@ -284,18 +295,20 @@ class Combine(Node):
 
         self.X = self.inbound_nodes[0]  # X.value.shape=(batch_size, nodes, 2)
         self.W = self.inbound_nodes[1]
-        self.rou = self.inbound_nodes[0].rou  # shape = (batch_size, nodes, nodes)
+
+        # rou = self.inbound_nodes[0].rou  # shape = (batch_size, nodes, nodes)
 
         # u and s, shape = (batch_size, nodes)
-        u = np.einsum('ij,kj->ki', self.W.value, self.X.value[:, :, 0]) * (1 - self.ratio)
-        s = np.sqrt(
-            np.einsum('im,km,in,kn,kmn->ki', self.W.value, self.X.value[:, :, 1], self.W.value, self.X.value[:, :, 1],
-                      self.rou) * (1 + self.ratio ** 2))
+        u = contract('ij,kj->ki', self.W.value, self.X.value[:, :, 0]) * (1 - self.ratio)
+
+        s = np.sqrt(contract('im,km,im,km->ki', self.W.value, self.X.value[:, :, 1], self.W.value, self.X.value[:, :, 1],) * (1 + self.ratio ** 2))
         self.value = np.stack([u, s], axis=-1)
+
+        # self.rou = np.expand_dims(rou, 0).repeat(u.shape[0], axis=0)
 
         # denominator = np.einsum('ki,kj->kij', s, s)
         # self.rou = np.einsum('im,km,jn,kn,kmn->kij', self.W.value, self.X.value[:, :, 1], self.W.value, self.X.value[:, :, 1], self.rou) * (1 + self.ratio ** 2) / denominator
-
+        #
         # if True:  print("\n================>Forward pass @ ", self.name)
         # if True: print("u_hat:{}".format(u[1, :5]))
         # if True: print("s_hat:{}".format(s[1, :5]))
@@ -329,20 +342,19 @@ class Combine(Node):
             # Set the partial of the loss with respect to this node's inputs.
 
             # shape = (batch_size, neurons, 2)
-            grad_u = np.einsum('ij,ki->kj', self.W.value, grad_cost[:, :, 0]) * (1 - self.ratio)
+            grad_u = contract('ij,ki->kj', self.W.value, grad_cost[:, :, 0]) * (1 - self.ratio)
             # grad_u = np.dot(self.W.value.T, grad_cost[:, 0]) * (1 - self.ratio)
             inv = 1 / (2 * self.value[:, :, 1])
-            temp = np.einsum('bi,ij,ik,bjk,bk->bij', inv, self.W.value, self.W.value, self.X.rou,
+            temp = contract('bi,ij,ij,bj->bij', inv, self.W.value, self.W.value,
                              self.X.value[:, :, 1]) * 2 * (
                            1 + self.ratio ** 2)
-            grad_s = np.einsum('bij,bi->bj', temp, grad_cost[:, :, 1])
+            grad_s = contract('bij,bi->bj', temp, grad_cost[:, :, 1])
             self.gradients[self.X] += np.stack([grad_u, grad_s], axis=-1)
 
             # Set the partial of the loss with respect to this node's weights.
-            ds_dw = np.einsum('bk,ki,bi,bj,bij->bkj', inv, self.W.value, self.X.value[:, :, 1], self.X.value[:, :, 1],
-                              self.X.rou) * 2 * (1 + self.ratio ** 2)
+            ds_dw = contract('bk,kj,bj,bj->bkj', inv, self.W.value, self.X.value[:, :, 1], self.X.value[:, :, 1],) * 2 * (1 + self.ratio ** 2)
             grad_u_part_w = np.einsum('bi,bj->bij', grad_cost[:, :, 0], self.X.value[:, :, 0]) * (
-                        1 - self.ratio)  # dE/du * du/dw
+                    1 - self.ratio)  # dE/du * du/dw
             grad_s_part_w = np.einsum('bi,bij->bij', grad_cost[:, :, 1], ds_dw)  # dE/ds * ds/dw
             batch_grad_w = grad_u_part_w + grad_s_part_w
             self.gradients[self.W] += np.sum(batch_grad_w, axis=0)
@@ -449,14 +461,25 @@ class Activate(Node):
     def __init__(self, X, name='activate_op'):
         Node.__init__(self, [X])
         self.name = name
+        self.s_1 = s_1
+        self.s_2 = s_2
+        self.ddwason = ddwason
 
     def forward(self):
         self.X = self.inbound_nodes[0]  # X.value.shape=(nodes, 2)
-        self.rou = self.X.rou
+        # self.rou = self.X.rou
         self.u_hat, self.s_hat = self.X.value[:, :, 0], self.X.value[:, :, 1]
-        func = Fun()
-        u = func.s_1(self.u_hat, self.s_hat)
-        cv = func.s_2(self.u_hat, self.s_hat)
+        shape = self.u_hat.shape
+
+        # func = Fun()
+        # u = func.s_1(self.u_hat, self.s_hat)
+        # cv = func.s_2(self.u_hat, self.s_hat)
+
+        # using the interpolation
+        u = [self.s_1(self.u_hat[i, j], self.s_hat[i, j]) for i in range(shape[0]) for j in range(shape[1])]
+        cv = [self.s_2(self.u_hat[i, j], self.s_hat[i, j]) for i in range(shape[0]) for j in range(shape[1])]
+        u = np.array(u).reshape(shape)
+        cv = np.array(cv).reshape(shape)
         s = cv * np.sqrt(u)
         self.value = np.stack([u, s], axis=-1)
 
@@ -493,9 +516,9 @@ class Activate(Node):
             i_2 = (self.v_th * self.L - self.u_hat) / self.s_hat
             du_du = (2 * u ** 2) * (dawson(i_2) - dawson(i_1)) / (self.s_hat * self.L)
             du_ds = (2 * u ** 2) * (i_2 * dawson(i_2) - i_1 * dawson(i_1)) / (self.s_hat * self.L)
-            ds_du = (-4 / (s_3 * self.s_hat * self.L ** 2)) * (dbl_dawson(i_2) - dbl_dawson(i_1)) * u ** (
+            ds_du = (-4 / (s_3 * self.s_hat * self.L ** 2)) * (self.ddwason(i_2) - self.ddwason(i_1)) * u ** (
                     3 / 2) + 3 * s_3 * np.sqrt(u) * du_du / 2
-            ds_ds = -4 * (i_2 * dbl_dawson(i_2) - i_1 * dbl_dawson(i_1)) * u ** (3 / 2) / (
+            ds_ds = -4 * (i_2 * self.ddwason(i_2) - i_1 * self.ddwason(i_1)) * u ** (3 / 2) / (
                     s_3 * self.L ** 2 * self.s_hat) + 3 * s_3 * np.sqrt(u) * du_ds / 2
 
             grad_u = grad_cost[:, :, 0] * du_du + grad_cost[:, :, 1] * ds_du
@@ -563,7 +586,7 @@ class BatchNormalization(Node):
 
     def forward(self):
 
-        self.rou = self.inbound_nodes[0].rou
+        # self.rou = self.inbound_nodes[0].rou
         if self.mode == 'train':
             dim = self.inbound_nodes[0].value.shape[1]
             sample_mean = self.X.value.mean(axis=0)
@@ -576,15 +599,21 @@ class BatchNormalization(Node):
             self.x_centered = self.X.value - sample_mean
             self.x_norm = self.x_centered / self.std
             out = self.gamma.value * self.x_norm + self.beta.value
-            self.value = out
+            out1 = np.clip(out[:, :, 0], -3., 5.)
+            out2 = np.clip(out[:, :, 1], 2., 20.)
+            self.value = np.stack([out1, out2], axis=-1)
 
         elif self.mode == 'test':
             x_norm = (self.X.value - self.running_mean) / np.sqrt(self.running_var + self.eps)
-            out = self.gamma.value * x_norm + self.beta
+            out = self.gamma.value * x_norm + self.beta.value
             self.value = out
 
         else:
             raise ValueError('Invalid forward batchnorm mode {}'.format(self.mode))
+
+        # if True:  print("\n================>Forward pass @ ", self.name)
+        # if True: print("u:{}".format(out[1, :5, 0]))
+        # if True: print("s:{}".format(out[1, :5, 1]))
 
     def backward(self):
         self.gradients = {n: np.zeros_like(n.value) for n in self.inbound_nodes}
@@ -626,24 +655,73 @@ class softmax_cross_entropy_with_logits(Node):
     it performs a softmax on logits internally for efficiency。
     '''
 
-    def __init__(self, logits, labels, name='soft_cross_entropy'):
+    def __init__(self, logits, labels, mode=1, name='soft_cross_entropy'):
         """softmax loss function"""
         Node.__init__(self, inbound_nodes=[logits, labels])
         self.name = name
+        self.mode = mode
 
     @staticmethod
     def softmax(logits):
         logits = np.exp(logits)
         for i in range(logits.shape[0]):
-            logits[i, :] = logits[i, :] / np.sum(logits[i, :])
+            logits[i, :] = logits[i, :] / np.sum(logits[i, :], axis=0)
         return logits
 
     def forward(self):
         labels = self.inbound_nodes[1].value
-        logits = self.inbound_nodes[0].value
-        logits_ = softmax_cross_entropy_with_logits.softmax(logits)
-        self.value = np.sum(-labels * np.log(logits_) - (1 - labels) * np.log(1 - logits_))
-        self.diff = logits_ - self.inbound_nodes[1].value
+        if self.mode:
+            logits = self.inbound_nodes[0].value[:, :, 0]
+        else:
+            logits = self.inbound_nodes[0].value
+        self.logits_ = softmax_cross_entropy_with_logits.softmax(logits)
+        self.value = np.sum(-labels * np.log(self.logits_) - (1 - labels) * np.log(1 - self.logits_), axis=1)
+        self.diff = self.logits_ - self.inbound_nodes[1].value
+
+    def my_eval(self):
+        return self.logits_
 
     def backward(self):
-        self.gradients[self.inbound_nodes[0]] = self.diff
+        bs, neurons = self.inbound_nodes[0].value.shape[0], self.inbound_nodes[0].value.shape[1]
+        if self.mode:
+            self.gradients[self.inbound_nodes[0]] = np.stack((self.diff, np.zeros((bs, neurons))), axis=-1)
+        else:
+            self.gradients[self.inbound_nodes[0]] = self.diff
+        self.gradients[self.inbound_nodes[1]] = 0  # invalid gradient, so i didn't calculate. just a random vlaue.
+
+def truncated_normal(shape, mean=0.0, stddev=0.1):
+    size_ = reduce(lambda x, y: x * y, shape)
+    ind = 0
+    out = []
+    while (ind < size_):
+        temp_ = np.random.normal(mean, stddev)
+        if (abs(temp_ - mean) < 2 * stddev):
+            ind += 1
+            out.append(temp_)
+    return np.array(out).reshape(shape)
+
+def truncated_exponential(shape, scale=0.3):
+    size_ = reduce(lambda  x, y: x * y, shape)
+    ind = 0
+    out = []
+    while (ind < size_):
+        temp_ = np.random.exponential(scale)
+        if temp_ < 1.:
+            ind += 1
+            out.append(temp_)
+    return np.array(out).reshape(shape)
+
+
+class GradientDescentOptimizer():
+    def __init__(self, graph, trainables=[], learning_rate=1e-2):
+        self.learning_rate = learning_rate
+        self.graph = graph
+        self.trainables = trainables
+
+    def run(self):
+        forward_and_backward(self.graph)
+
+        '''SGD_update'''
+        for t in self.trainables:
+            partial = t.gradients[t]
+            t.value -= self.learning_rate * partial
