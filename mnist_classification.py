@@ -17,12 +17,12 @@ def main():
     epochs = 2
     batch_size = 256
 
-    data_train = torchvision.datasets.MNIST("./mnist_data/", train=True, download=False,
+    data_train = torchvision.datasets.MNIST("./mnist/", train=True, download=False,
                                             transform=torchvision.transforms.Compose(
                                                 [torchvision.transforms.ToTensor(),
                                                  torchvision.transforms.Normalize((0.1307,), (0.3081,))]
                                             ))
-    data_test = torchvision.datasets.MNIST("./mnist_data/", train=False, download=False,
+    data_test = torchvision.datasets.MNIST("./mnist/", train=False, download=False,
                                            transform=torchvision.transforms.Compose(
                                                [torchvision.transforms.ToTensor(),
                                                 torchvision.transforms.Normalize((0.1307,), (0.3081,))]))
@@ -70,7 +70,7 @@ def main():
             print('\ntrain loss:\t', train_loss)
             print('train accuracy:\t', train_acc)
             print('batch {} takes time:'.format(i), time.time()-start)
-            if i % 5 ==0:
+            if i % 10 ==0:
                 train_loss_list.append(train_loss)
                 train_acc_list.append(train_acc)
                 xx_test = x_test.numpy().reshape((-1, in_units))
