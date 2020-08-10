@@ -24,6 +24,6 @@ to the `tensorflow`:
 The MNIST database of handwritten digits, has a training set of 60,000 examples,
 and a test set of 10,000 examples. we test the 1 hidden layer mnn's performance, and the following 
 picture show the loss and accuracy during training and predicting.
-![loss](https://github.com/lepold/mnn_box/raw/master/image/loss.png)
-![accuracy](https://github.com/lepold/mnn_box/raw/master/image/loss.png)
+![loss](https://github.com/lepodl/mnn_box/raw/master/image/loss.png)
+![accuracy](https://github.com/lepodl/mnn_box/raw/master/image/accuracy.png)
 
