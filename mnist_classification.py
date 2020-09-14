@@ -43,7 +43,7 @@ def main():
     x = mnn.Input(np.empty((batch_size, in_units)))
     hidden1 = mnn.Compose(x, w1, 'compose_op_1')
     gamma1, beta1 = mnn.Variable(np.ones((hi_units, 2)), 'gamma1'), mnn.Variable(
-        np.stack([np.ones(hi_units) * 2., np.ones(hi_units) * 10.], axis=1), 'gamma1')
+        np.stack([np.ones(hi_units) * 2., np.ones(hi_units) * 10.], axis=1), 'beta1')
     bn1 = mnn.BatchNormalization(hidden1, gamma1, beta1, {'mode': 'train'}, "bn_op_1")
     activate1 = mnn.Activate(bn1, 'activation_op_1')
     w2 = mnn.Variable(mnn.truncated_normal([o_units, hi_units], stddev=0.1), 'weight2')
