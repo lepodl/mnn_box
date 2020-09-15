@@ -52,11 +52,12 @@ def main():
     all_beta = [ mnn.Variable(np.stack([np.ones(neurons) * 2., np.ones(neurons) * 10.], axis=1), 'beta{}'.format(i)) for i in range(hidden)]
     all_compose = []
     total_layer = [x, ]
-    bn = []
+    all_bn = []
     for i in range(hidden):
         compose = mnn.Compose(total_layer[i], all_weight[i], name="compoe_op{}".format(i + 1))
         all_compose.append(compose)
         bn = mnn.BatchNormalization(compose, all_gamma[i], all_beta[i], {'mode': 'train'}, "bn_op{}".format(i+1))
+        all_bn.append(bn)
         layer = mnn.Activate(bn, name="layer{}".format(i + 1))
         total_layer.append(layer)
     cost = mnn.MSE(total_layer[-1], target, )
@@ -98,11 +99,11 @@ def main():
         if count % 5 == 0:
             x.value = np.stack([u_test, s_test], axis=-1)
             target.value = np.stack([u_test, s_test], axis=-1)
-            for single_bn in bn:
+            for single_bn in all_bn:
                 single_bn.mode = "test"
             loss = mnn.forward_pass(cost, graph_sequence)
             loss_test.append(loss)
-            for single_bn in bn:
+            for single_bn in all_bn:
                 single_bn.mode = "train"
 
     # step 4: plot and analyse
