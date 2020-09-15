@@ -26,41 +26,40 @@ def main():
     neurons = 10 # here, we suppose the network is consistent that each layer consists of 10 neurons.
     hidden = 3 # num of hidden layers
 
-    #-----------------------------------------------------------------------------
-    # if no batch normalization
-
     x =  mnn.Input(value=np.empty((bs, neurons, 2)), name="input") # a node but only act as a placeholder, no operator
     target = mnn.Variable(value=np.empty((bs, neurons, 2)), name='target')
     all_weight = [mnn.Variable(value=mnn.truncated_normal([neurons, neurons], stddev=0.1), name='weight{}'.format(i)) for i in range(hidden)]
 
+    # -----------------------------------------------------------------------------
+    # if no batch normalization
     # compose1 = mnn.Compose(x, all_weight[0], name="compose_op_1")
     # layer1 = mnn.Activate(compose1, name="layer1")
     # then layer 2, layer 3, layer 4
 
     # so we can make a loop to construct the nn at once
-    all_compose = []
-    total_layer = [x, ]
-    for i in range(hidden):
-        compose = mnn.Compose(total_layer[i], all_weight[i], name="compoe_op{}".format(i+1))
-        all_compose.append(compose)
-        layer = mnn.Activate(compose, name="layer{}".format(i+1))
-        total_layer.append(layer)
-    cost = mnn.MSE(total_layer[-1], target,)
+    # all_compose = []
+    # total_layer = [x, ]
+    # for i in range(hidden):
+    #     compose = mnn.Compose(total_layer[i], all_weight[i], name="compoe_op{}".format(i+1))
+    #     all_compose.append(compose)
+    #     layer = mnn.Activate(compose, name="layer{}".format(i+1))
+    #     total_layer.append(layer)
+    # cost = mnn.MSE(total_layer[-1], target,)
 
     #------------------------------------------------------------------------------
     # if implement batch normalization, we need to add two other place holder
-    # all_gamma = [mnn.Variable(np.ones((neurons, 2)), 'gamma{}'.format(i)) for i in range(hidden)]
-    # all_beta = [ mnn.Variable(np.stack([np.ones(neurons) * 2., np.ones(neurons) * 10.], axis=1), 'beta{}'.format(i)) for i in range(hidden)]
-    # all_compose = []
-    # total_layer = [x, ]
-    # bn = []
-    # for i in range(hidden):
-    #     compose = mnn.Compose(total_layer[i], all_weight[i], name="compoe_op{}".format(i + 1))
-    #     all_compose.append(compose)
-    #     bn = mnn.BatchNormalization(compose, all_gamma[i], all_beta[i], {'mode': 'train'}, "bn_op{}".format(i+1))
-    #     layer = mnn.Activate(bn, name="layer{}".format(i + 1))
-    #     total_layer.append(layer)
-    # cost = mnn.MSE(total_layer[-1], target, )
+    all_gamma = [mnn.Variable(np.ones((neurons, 2)), 'gamma{}'.format(i)) for i in range(hidden)]
+    all_beta = [ mnn.Variable(np.stack([np.ones(neurons) * 2., np.ones(neurons) * 10.], axis=1), 'beta{}'.format(i)) for i in range(hidden)]
+    all_compose = []
+    total_layer = [x, ]
+    bn = []
+    for i in range(hidden):
+        compose = mnn.Compose(total_layer[i], all_weight[i], name="compoe_op{}".format(i + 1))
+        all_compose.append(compose)
+        bn = mnn.BatchNormalization(compose, all_gamma[i], all_beta[i], {'mode': 'train'}, "bn_op{}".format(i+1))
+        layer = mnn.Activate(bn, name="layer{}".format(i + 1))
+        total_layer.append(layer)
+    cost = mnn.MSE(total_layer[-1], target, )
 
     #-------------------------------------------------------------------------------
 
@@ -96,11 +95,15 @@ def main():
             loss_train.append(cost.value)
             mnn.sgd_update(train_ables, 0.1)
         # test:
-        if count % 400 == 0:
-            x.value = np.stack([u_test, s_test])
-            target.value = np.stack([u_test, s_test])
+        if count % 5 == 0:
+            x.value = np.stack([u_test, s_test], axis=-1)
+            target.value = np.stack([u_test, s_test], axis=-1)
+            for single_bn in bn:
+                single_bn.mode = "test"
             loss = mnn.forward_pass(cost, graph_sequence)
             loss_test.append(loss)
+            for single_bn in bn:
+                single_bn.mode = "train"
 
     # step 4: plot and analyse
     fig = plt.figure()
